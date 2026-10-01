@@ -102,8 +102,12 @@ def get_pricing_openrouter():
         raise ValueError("Failed to get model metadata")
 
     model_metadata = response.json()
+    # OpenRouter also returns non-numeric entries (e.g. "overrides" lists for
+    # tiered pricing); keep only the flat per-token prices.
     return {
-        model["id"]: {k: float(v) for k, v in model["pricing"].items()}
+        model["id"]: {
+            k: float(v) for k, v in model["pricing"].items() if isinstance(v, (str, int, float))
+        }
         for model in model_metadata["data"]
     }
 
