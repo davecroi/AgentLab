@@ -207,6 +207,37 @@ def test_unsuccessful_parse_before_max_retries():
     assert mock_chat.call.call_count == 2
 
 
+def test_retry_does_not_resend_failed_answers():
+    # The model tends to copy a malformed answer it sees in its context, so each retry
+    # must resample from the original prompt instead of the growing discussion.
+    seen = []
+
+    def call(messages):
+        seen.append([m["content"] for m in messages])
+        return make_system_message("wrong content" if len(seen) < 3 else "correct content")
+
+    mock_chat = MockChatOpenAI()
+    mock_chat.call = Mock(side_effect=call)
+    messages = llm_utils.Discussion(
+        [llm_utils.SystemMessage("system"), llm_utils.HumanMessage("prompt")]
+    )
+
+    result = llm_utils.retry(mock_chat, messages, 5, mock_parser)
+
+    assert result == "Parsed value"
+    assert seen == [["system", "prompt"]] * 3
+    # the discussion still records every attempt for the logs and the n_retry count
+    assert [m["content"] for m in messages] == [
+        "system",
+        "prompt",
+        "wrong content",
+        "Retry message",
+        "wrong content",
+        "Retry message",
+        "correct content",
+    ]
+
+
 def test_retry_parse_raises():
     mock_chat = MockChatOpenAI()
     mock_chat.call = Mock(return_value=make_system_message("mocked response"))

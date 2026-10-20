@@ -59,8 +59,10 @@ def retry(
     """Retry querying the chat models with the response from the parser until it
     returns a valid value.
 
-    If the answer is not valid, it will retry and append to the chat the  retry
-    message.  It will stop after `n_retry`.
+    If the answer is not valid, it will retry by resending the original prompt. The
+    invalid answers and retry messages are appended to `messages` for logging, but are
+    not sent to the model: models tend to copy a malformed answer they see in their
+    context, which makes the retries fail too. It will stop after `n_retry`.
 
     Note, each retry has to resend the whole prompt to the API. This can be slow
     and expensive.
@@ -69,7 +71,7 @@ def retry(
         chat (ChatModel): a ChatModel object taking a list of messages and
             returning a list of answers, all in OpenAI format.
         messages (list): the list of messages so far. This list will be modified with
-            the new messages and the retry messages.
+            the new messages and the retry messages (a log of all attempts).
         n_retry (int): the maximum number of sequential retries.
         parser (callable): a function taking a message and retruning a parsed value,
             or raising a ParseError
@@ -81,9 +83,10 @@ def retry(
     Raises:
         ParseError: if the parser could not parse the response after n_retry retries.
     """
+    prompt = Discussion(list(messages)) if isinstance(messages, Discussion) else list(messages)
     tries = 0
     while tries < n_retry:
-        answer = chat(messages)
+        answer = chat(prompt)
         # TODO: could we change this to not use inplace modifications ?
         messages.append(answer)
         try:

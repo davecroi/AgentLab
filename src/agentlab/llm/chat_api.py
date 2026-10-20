@@ -323,13 +323,15 @@ class ChatModel(AbstractChatModel):
         ):
             tracking.TRACKER.instance(input_tokens, output_tokens, cost)
 
+        # reasoning models can end their turn after the reasoning, with content=None;
+        # "" lets the parser raise a ParseError, which the agent retries
         if n_samples == 1:
-            res = AIMessage(completion.choices[0].message.content)
+            res = AIMessage(completion.choices[0].message.content or "")
             if self.log_probs:
                 res["log_probs"] = completion.choices[0].log_probs
             return res
         else:
-            return [AIMessage(c.message.content) for c in completion.choices]
+            return [AIMessage(c.message.content or "") for c in completion.choices]
 
     def get_stats(self):
         return {

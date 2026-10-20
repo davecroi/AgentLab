@@ -1,16 +1,41 @@
 import os
+from types import SimpleNamespace
 
 import pytest
 
 from agentlab.llm.chat_api import (
     AnthropicModelArgs,
     AzureModelArgs,
+    ChatModel,
     OpenAIModelArgs,
     make_system_message,
     make_user_message,
 )
 
 # TODO(optimass): figure out a good model for all tests
+
+
+def _client_returning(content):
+    message = SimpleNamespace(content=content)
+    completion = SimpleNamespace(
+        choices=[SimpleNamespace(message=message)],
+        usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1),
+    )
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            self.chat = SimpleNamespace(
+                completions=SimpleNamespace(create=lambda **kw: completion)
+            )
+
+    return FakeClient
+
+
+def test_chat_model_empty_content_becomes_empty_string():
+    # Reasoning models can end their turn after the reasoning, with content=None.
+    # It must reach the parser as "" (a retryable ParseError), not None (a TypeError).
+    model = ChatModel("some/model", api_key="x", client_class=_client_returning(None))
+    assert model([make_user_message("hi")])["content"] == ""
 
 
 if "AGENTLAB_LOCAL_TEST" in os.environ:
