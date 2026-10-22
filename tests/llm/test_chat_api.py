@@ -15,8 +15,8 @@ from agentlab.llm.chat_api import (
 # TODO(optimass): figure out a good model for all tests
 
 
-def _client_returning(content):
-    message = SimpleNamespace(content=content)
+def _client_returning(content, **message_fields):
+    message = SimpleNamespace(content=content, **message_fields)
     completion = SimpleNamespace(
         choices=[SimpleNamespace(message=message)],
         usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1),
@@ -36,6 +36,22 @@ def test_chat_model_empty_content_becomes_empty_string():
     # It must reach the parser as "" (a retryable ParseError), not None (a TypeError).
     model = ChatModel("some/model", api_key="x", client_class=_client_returning(None))
     assert model([make_user_message("hi")])["content"] == ""
+
+
+def test_chat_model_puts_reasoning_back_as_think():
+    # OpenRouter moves deepseek-v4.1-flash's <think> block to message.reasoning;
+    # it must reach the think parser like gpt-6-luna's visible <think>.
+    client = _client_returning("<action>\nclick('395')\n</action>", reasoning="Go to checkout.")
+    model = ChatModel("some/model", api_key="x", client_class=client)
+    assert model([make_user_message("hi")])["content"] == (
+        "<think>\nGo to checkout.\n</think>\n<action>\nclick('395')\n</action>"
+    )
+
+
+def test_chat_model_keeps_visible_think_over_reasoning():
+    client = _client_returning("<think>\nvisible\n</think>", reasoning="hidden")
+    model = ChatModel("some/model", api_key="x", client_class=client)
+    assert model([make_user_message("hi")])["content"] == "<think>\nvisible\n</think>"
 
 
 if "AGENTLAB_LOCAL_TEST" in os.environ:

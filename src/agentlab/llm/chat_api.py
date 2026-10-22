@@ -221,6 +221,22 @@ def handle_error(error, itr, min_retry_wait_time, max_retry):
     return error_type
 
 
+def content_with_reasoning(message) -> str:
+    """The message content, with the reasoning of a reasoning model wrapped in <think> tags.
+
+    Providers such as OpenRouter return the reasoning (e.g. deepseek-v4.1-flash's <think>
+    block) in `message.reasoning` (or `reasoning_content`) instead of the content. Putting it
+    back as <think>, like litellm_api and response_api do, lets the agent's think parser and
+    think history use it. A reasoning model can also end its turn after the reasoning, with
+    content=None; "" lets the parser raise a ParseError, which the agent retries.
+    """
+    content = message.content or ""
+    reasoning = getattr(message, "reasoning", None) or getattr(message, "reasoning_content", None)
+    if reasoning and "<think>" not in content:
+        return f"<think>\n{reasoning.strip()}\n</think>\n{content}"
+    return content
+
+
 class OpenRouterError(openai.OpenAIError):
     pass
 
@@ -323,15 +339,13 @@ class ChatModel(AbstractChatModel):
         ):
             tracking.TRACKER.instance(input_tokens, output_tokens, cost)
 
-        # reasoning models can end their turn after the reasoning, with content=None;
-        # "" lets the parser raise a ParseError, which the agent retries
         if n_samples == 1:
-            res = AIMessage(completion.choices[0].message.content or "")
+            res = AIMessage(content_with_reasoning(completion.choices[0].message))
             if self.log_probs:
                 res["log_probs"] = completion.choices[0].log_probs
             return res
         else:
-            return [AIMessage(c.message.content or "") for c in completion.choices]
+            return [AIMessage(content_with_reasoning(c.message)) for c in completion.choices]
 
     def get_stats(self):
         return {

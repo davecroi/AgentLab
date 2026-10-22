@@ -18,6 +18,7 @@ from agentlab.llm.llm_utils import (
     ParseError,
     count_tokens,
     extract_code_blocks,
+    extract_html_tags,
     image_to_jpg_base64_url,
     parse_html_tags_raise,
 )
@@ -609,7 +610,16 @@ elements in the page is through bid which are specified in your observations.
 
     def _parse_answer(self, text_answer):
         try:
-            ans_dict = parse_html_tags_raise(text_answer, keys=["action"], merge_multiple=True)
+            if getattr(self.action_set, "multiaction", True):
+                ans_dict = parse_html_tags_raise(text_answer, keys=["action"], merge_multiple=True)
+            else:
+                # single-action set: keep the first <action> block. Models such as
+                # deepseek-v4.1-flash can repeat their whole answer, and merging the
+                # copies would make a multi-action that the action set rejects.
+                actions = extract_html_tags(text_answer, ["action"]).get("action", [])
+                if not actions:
+                    raise ParseError("Missing the key <action> in the answer.")
+                ans_dict = {"action": actions[0]}
         except ParseError as e:
             if self.action_flags.is_strict:
                 raise e
@@ -742,6 +752,19 @@ response from the page.
 #         return f"{self.prefix}{header}\n{diff_str}\n"
 
 
+# Past thoughts longer than this are cut to their end, where the decision usually is. The
+# history is never shrunk, so the full reasoning of a reasoning model (often 2-20k chars per
+# step for deepseek-v4.1-flash) would fill the prompt and force the current AXTree to be
+# truncated. gpt-6-luna's visible thoughts stay below it (max 991 chars on WebMall).
+MAX_THINK_HISTORY_CHARS = 1000
+
+
+def _tail(text, max_chars):
+    if text is None or len(text) <= max_chars:
+        return text
+    return f"[... {len(text) - max_chars} chars cut ...]\n{text[-max_chars:]}"
+
+
 class HistoryStep(Shrinkable):
     def __init__(
         self, previous_obs, current_obs, action, memory, thought, flags: ObsFlags, shrink_speed=1
@@ -786,7 +809,7 @@ class HistoryStep(Shrinkable):
         prompt = ""
 
         if self.flags.use_think_history:
-            prompt += f"\n<think>\n{self.thought}\n</think>\n"
+            prompt += f"\n<think>\n{_tail(self.thought, MAX_THINK_HISTORY_CHARS)}\n</think>\n"
 
         if self.flags.use_action_history:
             prompt += f"\n<action>\n{self.action}\n</action>\n"

@@ -251,6 +251,41 @@ def test_main_prompt_elements_present():
             assert expected in prompt
 
 
+def _action_prompt(multiaction):
+    action_set = HighLevelActionSet(subsets=["bid"], multiaction=multiaction)
+    return dp.ActionPrompt(action_set, dp.ActionFlags())
+
+
+def test_single_action_parse_keeps_first_action_block():
+    # deepseek-v4.1-flash can repeat its whole answer; merging the copies used to make a
+    # multi-action that the single-action set rejects, until the episode ran out of retries.
+    answer = "<action>\nfill('7', 'a')\n</action>\n<memory>m</memory>\n<action>\nclick('12')\n</action>"
+    assert _action_prompt(False).parse_answer(answer)["action"] == "fill('7', 'a')"
+
+
+def test_single_action_parse_still_requires_an_action():
+    with pytest.raises(dp.ParseError):
+        _action_prompt(False).parse_answer("<memory>m</memory>")
+
+
+def test_multiaction_parse_merges_action_blocks():
+    answer = "<action>\nclick('1')\n</action>\n<action>\nclick('2')\n</action>"
+    assert _action_prompt(True).parse_answer(answer)["action"] == "click('1')\nclick('2')"
+
+
+def test_think_history_keeps_the_end_of_long_thoughts():
+    # the full reasoning of deepseek-v4.1-flash would grow the never-shrunk history until the
+    # current AXTree gets truncated; short thoughts (like gpt-6-luna's) are kept as they are
+    flags = deepcopy(FLAGS_GPT_3_5.obs)
+    flags.use_think_history = True
+    long_thought = "x" * 5000 + "so I click 12"
+    step = dp.HistoryStep(OBS_HISTORY[0], OBS_HISTORY[1], "click('12')", None, long_thought, flags)
+    assert "x" * 2000 not in step.prompt
+    assert "so I click 12" in step.prompt
+    short = dp.HistoryStep(OBS_HISTORY[0], OBS_HISTORY[1], "click('12')", None, "short", flags)
+    assert "<think>\nshort\n</think>" in short.prompt
+
+
 if __name__ == "__main__":
     # for debugging
     test_shrinking_observation()
