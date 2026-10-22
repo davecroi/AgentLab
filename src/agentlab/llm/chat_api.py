@@ -79,7 +79,13 @@ class CheatMiniWoBLLMArgs:
 @dataclass
 class OpenRouterModelArgs(BaseModelArgs):
     """Serializable object for instantiating a generic chat model with an OpenAI
-    model."""
+    model.
+
+    provider: OpenRouter provider routing preferences, sent as the request's `provider`
+    field, e.g. {"sort": "price"} for the cheapest provider (fallbacks stay enabled).
+    """
+
+    provider: Optional[dict] = None
 
     def make_model(self):
         return OpenRouterChatModel(
@@ -87,6 +93,7 @@ class OpenRouterModelArgs(BaseModelArgs):
             temperature=self.temperature,
             max_tokens=self.max_new_tokens,
             log_probs=self.log_probs,
+            provider=self.provider,
         )
 
 
@@ -255,6 +262,7 @@ class ChatModel(AbstractChatModel):
         client_args=None,
         pricing_func=None,
         log_probs=False,
+        extra_body=None,
     ):
         assert max_retry > 0, "max_retry should be greater than 0"
 
@@ -264,6 +272,7 @@ class ChatModel(AbstractChatModel):
         self.max_retry = max_retry
         self.min_retry_wait_time = min_retry_wait_time
         self.log_probs = log_probs
+        self.extra_body = extra_body
 
         # Get the API key from the environment variable if not provided
         if api_key_env_var:
@@ -311,6 +320,7 @@ class ChatModel(AbstractChatModel):
                     temperature=temperature,
                     max_completion_tokens=self.max_tokens,
                     logprobs=self.log_probs,
+                    extra_body=self.extra_body,
                 )
 
                 if completion.usage is None:
@@ -333,6 +343,10 @@ class ChatModel(AbstractChatModel):
         input_tokens = completion.usage.prompt_tokens
         output_tokens = completion.usage.completion_tokens
         cost = input_tokens * self.input_cost + output_tokens * self.output_cost
+        # OpenRouter reports the billed cost of the provider that served the request
+        reported_cost = getattr(completion.usage, "cost", None)
+        if reported_cost is not None:
+            cost = float(reported_cost)
 
         if hasattr(tracking.TRACKER, "instance") and isinstance(
             tracking.TRACKER.instance, tracking.LLMTracker
@@ -391,10 +405,14 @@ class OpenRouterChatModel(ChatModel):
         max_retry=4,
         min_retry_wait_time=60,
         log_probs=False,
+        provider=None,
     ):
         client_args = {
             "base_url": "https://openrouter.ai/api/v1",
         }
+        extra_body = {"usage": {"include": True}}
+        if provider:
+            extra_body["provider"] = provider
         super().__init__(
             model_name=model_name,
             api_key=api_key,
@@ -407,6 +425,7 @@ class OpenRouterChatModel(ChatModel):
             client_args=client_args,
             pricing_func=tracking.get_pricing_openrouter,
             log_probs=log_probs,
+            extra_body=extra_body,
         )
 
 
