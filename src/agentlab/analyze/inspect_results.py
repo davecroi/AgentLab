@@ -556,8 +556,9 @@ def set_wrap_style(df):
 
 
 def map_err_key(err_msg: str):
-    if err_msg is None:
-        return err_msg
+    # pandas 3 stores missing strings as NaN, not None
+    if not isinstance(err_msg, str):
+        return None
 
     # remove logs from the message if any
     err_msg = err_msg[: err_msg.find("=== logs ===")].rstrip()
