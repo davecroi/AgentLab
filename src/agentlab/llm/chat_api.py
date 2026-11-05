@@ -83,9 +83,12 @@ class OpenRouterModelArgs(BaseModelArgs):
 
     provider: OpenRouter provider routing preferences, sent as the request's `provider`
     field, e.g. {"sort": "price"} for the cheapest provider (fallbacks stay enabled).
+    reasoning: OpenRouter reasoning settings, sent as the request's `reasoning` field,
+    e.g. {"effort": "xhigh"}.
     """
 
     provider: Optional[dict] = None
+    reasoning: Optional[dict] = None
 
     def make_model(self):
         return OpenRouterChatModel(
@@ -94,6 +97,7 @@ class OpenRouterModelArgs(BaseModelArgs):
             max_tokens=self.max_new_tokens,
             log_probs=self.log_probs,
             provider=self.provider,
+            reasoning=self.reasoning,
         )
 
 
@@ -390,6 +394,7 @@ class OpenRouterChatModel(ChatModel):
         min_retry_wait_time=60,
         log_probs=False,
         provider=None,
+        reasoning=None,
     ):
         client_args = {
             "base_url": "https://openrouter.ai/api/v1",
@@ -397,6 +402,8 @@ class OpenRouterChatModel(ChatModel):
         extra_body = {"usage": {"include": True}}
         if provider:
             extra_body["provider"] = provider
+        if reasoning:
+            extra_body["reasoning"] = reasoning
         super().__init__(
             model_name=model_name,
             api_key=api_key,

@@ -6,11 +6,26 @@ from agentlab.llm.chat_api import (
     AnthropicModelArgs,
     AzureModelArgs,
     OpenAIModelArgs,
+    OpenRouterModelArgs,
     make_system_message,
     make_user_message,
 )
+from agentlab.llm import tracking
 
 # TODO(optimass): figure out a good model for all tests
+
+
+def test_openrouter_model_args_send_provider_and_reasoning(monkeypatch):
+    monkeypatch.setattr(tracking, "get_pricing_openrouter", lambda: {})
+    monkeypatch.setenv("OPENROUTER_API_KEY", "x")
+    model = OpenRouterModelArgs(
+        model_name="some/model", provider={"sort": "price"}, reasoning={"effort": "xhigh"}
+    ).make_model()
+    assert model.extra_body == {
+        "usage": {"include": True},
+        "provider": {"sort": "price"},
+        "reasoning": {"effort": "xhigh"},
+    }
 
 
 if "AGENTLAB_LOCAL_TEST" in os.environ:
